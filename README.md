@@ -6,6 +6,15 @@ The goal is to make it possible to control devices using **Web Bluetooth**, thro
 
 ---
 
+## ⚠️ Disclaimer
+
+This project is **unofficial**.  
+I have **no affiliation** with DG-LAB.  
+Use at your own risk and always follow standard e-stim safety measures (low intensity first, avoid chest/heart paths, avoid head/neck, never use near medical implants, stay within recommended duty cycles, and stop immediately if you feel anything abnormal).  
+This repository exists purely for educational and interoperability purposes.
+
+---
+
 ## ✨ What is inside?
 
 - Practical notes about the BLE protocol (services, characteristics, payloads)
@@ -64,14 +73,6 @@ Contributions welcome.
 
 ---
 
-## ⚠️ Disclaimer
-
-This project is **unofficial**.  
-I have **no affiliation** with DG-LAB.  
-Use at your own risk.  
-This repository exists purely for educational and interoperability purposes.
-
----
 
 ## 👋 Contribute
 
