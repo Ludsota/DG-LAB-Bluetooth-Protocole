@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DG-LAB PawPrint Kit</title>
+    <style>
+        :root {
+            --bg: #121212;
+            --surface: #1e1e1e;
+            --primary: #bb86fc;
+            --secondary: #03dac6;
+            --error: #cf6679;
+            --on-bg: #e0e0e0;
+            --border: #333;
+        }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--on-bg);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        
+        /* Header */
+        header {
+            background: var(--surface);
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        h1 { margin: 0; font-size: 1.2rem; color: var(--primary); }
+        
+        button {
+            background: #333; color: white; border: 1px solid #555;
+            padding: 8px 16px; border-radius: 4px; cursor: pointer;
+            transition: 0.2s;
+        }
+        button:hover { background: #444; }
+        button.primary { background: var(--primary); color: #000; border: none; font-weight: bold; }
+        button.accent { background: var(--secondary); color: #000; border: none; font-weight: bold; }
+        
+        /* Layout */
+        .container { display: flex; flex: 1; overflow: hidden; }
+        
+        /* Sidebar / Tabs */
+        .tabs {
+            width: 200px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+        .tab-btn {
+            padding: 15px;
+            text-align: left;
+            background: none; border: none;
+            color: #888;
+            border-bottom: 1px solid #2a2a2a;
+        }
+        .tab-btn:hover { background: #2a2a2a; color: white; }
+        .tab-btn.active {
+            background: #2d2d2d;
+            color: var(--primary);
+            border-left: 3px solid var(--primary);
+        }
+        
+        /* Main Content */
+        .content {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            position: relative;
+        }
+        
+        .tab-pane { display: none; max-width: 800px; margin: 0 auto; }
+        .tab-pane.active { display: block; animation: fadeIn 0.3s; }
+        
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Card Style */
+        .card {
+            background: var(--surface);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+        }
+        .card h2 { margin-top: 0; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        
+        /* Controls */
+        .control-row { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
+        label { width: 120px; font-weight: bold; }
+        input[type="range"] { flex: 1; }
+        .val-display { width: 50px; text-align: right; font-family: monospace; }
+        
+        /* Visualizers */
+        .bar-container {
+            height: 20px; background: #333; border-radius: 10px; overflow: hidden;
+            position: relative;
+        }
+        .bar-fill {
+            height: 100%; background: var(--secondary); width: 0%;
+            transition: width 0.1s linear;
+        }
+        .bar-marker {
+            position: absolute; top: 0; bottom: 0; width: 2px; background: red;
+            z-index: 2;
+        }
+        
+        .status-indicator {
+            padding: 10px; text-align: center;
+            background: #333; border-radius: 4px; font-weight: bold;
+            transition: 0.2s;
+        }
+        .status-indicator.active { background: var(--secondary); color: #000; }
+        
+        /* Colors */
+        .color-grid { display: flex; gap: 10px; margin-top: 10px; }
+        .c-btn { width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid #555; }
+        .c-btn:hover { transform: scale(1.1); }
+        
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>DG-LAB PawPrint Kit</h1>
+    <div>
+        <span id="connection-status" style="margin-right: 10px; color: #888;">Disconnected</span>
+        <button id="btn-connect" class="primary">Connect Device</button>
+    </div>
+</header>
+
+<div class="container">
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="manual">Manual Control</button>
+        <button class="tab-btn" data-tab="yellow">Mode Yellow (Btn)</button>
+        <button class="tab-btn" data-tab="blue">Mode Blue (Tilt)</button>
+        <button class="tab-btn" data-tab="red">Mode Red (Shake)</button>
+        <button class="tab-btn" data-tab="violet">Mode Violet (Reflex)</button>
+        <button class="tab-btn" data-tab="cyan">Mode Cyan (Chance)</button>
+    </div>
+    
+    <div class="content">
+        
+        <!-- MANUAL MODE -->
+        <div id="tab-manual" class="tab-pane active">
+            <div class="card">
+                <h2>Manual Controls</h2>
+                <div class="control-row">
+                    <label>Internal LED</label>
+                    <div class="color-grid" id="manual-int-colors"></div>
+                </div>
+                <div class="control-row">
+                    <label>External Ring</label>
+                    <div class="color-grid" id="manual-ext-colors"></div>
+                </div>
+                <div class="control-row">
+                    <label>Blink Test</label>
+                    <button onclick="app.blinkTest()">Blink Red/Blue 5Hz</button>
+                    <button onclick="app.paw.setExternalColor(0)">Stop</button>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>Sensor Data</h2>
+                <div class="control-row">
+                    <label>Stream</label>
+                    <button id="btn-stream">Start Stream</button>
+                </div>
+                <div class="control-row">
+                    <label>Buttons</label>
+                    <div id="disp-btns">---</div>
+                </div>
+                <div class="control-row">
+                    <label>Accel</label>
+                    <div id="disp-accel" style="font-family: monospace">X:0 Y:0 Z:0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- YELLOW MODE (PUSH) -->
+        <div id="tab-yellow" class="tab-pane">
+            <div class="card">
+                <h2>Yellow Mode: Push Button</h2>
+                <p>Triggers visual feedback when button is Pressed or Released.</p>
+                
+                <div class="status-indicator" id="yellow-indicator">WAITING</div>
+            </div>
+        </div>
+
+        <!-- BLUE MODE (TILT) -->
+        <div id="tab-blue" class="tab-pane">
+            <div class="card">
+                <h2>Blue Mode: Tilt</h2>
+                
+                <div class="control-row">
+                    <label>Axis</label>
+                    <select id="blue-axis">
+                        <option value="pitch">Pitch (Up/Down)</option>
+                        <option value="roll">Roll (Left/Right)</option>
+                    </select>
+                </div>
+                
+                <div class="control-row">
+                    <label>Min Angle</label>
+                    <input type="range" id="blue-min" min="-180" max="180" value="-30">
+                    <span class="val-display" id="val-blue-min">-30</span>
+                </div>
+                
+                <div class="control-row">
+                    <label>Max Angle</label>
+                    <input type="range" id="blue-max" min="-180" max="180" value="30">
+                    <span class="val-display" id="val-blue-max">30</span>
+                </div>
+                
+                <div class="control-row">
+                    <label>Current</label>
+                    <div class="bar-container" style="flex:1; background:#444;">
+                        <div id="blue-bar-marker" class="bar-marker" style="left:50%; width:2px; background:white;"></div>
+                        <div id="blue-bar-fill" class="bar-fill" style="width:10px; left:50%; position:absolute; opacity:0.5;"></div>
+                    </div>
+                    <span class="val-display" id="blue-current">0°</span>
+                </div>
+                
+                <div class="status-indicator" id="blue-indicator">IN RANGE</div>
+            </div>
+        </div>
+
+        <!-- RED MODE (SHAKE) -->
+        <div id="tab-red" class="tab-pane">
+            <div class="card">
+                <h2>Red Mode: Shake</h2>
+                
+                <div class="control-row">
+                    <label>Threshold</label>
+                    <input type="range" id="red-thresh" min="0" max="5000" step="100" value="2000">
+                    <span class="val-display" id="val-red-thresh">2000</span>
+                </div>
+                
+                <div class="control-row">
+                    <label>Intensity</label>
+                    <div class="bar-container" style="flex:1;">
+                        <div id="red-bar" class="bar-fill" style="width: 0%;"></div>
+                        <div id="red-marker" class="bar-marker" style="left: 40%;"></div>
+                    </div>
+                    <span class="val-display" id="red-val">0</span>
+                </div>
+                
+                <div class="status-indicator" id="red-indicator">NOT ENOUGH</div>
+            </div>
+        </div>
+
+        <!-- VIOLET MODE (REFLEX) -->
+        <div id="tab-violet" class="tab-pane">
+            <div class="card">
+                <h2>Violet Mode: Quick React</h2>
+                <p>Wait for the light, then press the button quickly!</p>
+                <button class="accent" onclick="app.startVioletGame()" style="width:100%; padding:20px; font-size:1.2rem;">Start Game</button>
+                
+                <div id="violet-status" style="margin-top:20px; font-size:1.5rem; text-align:center;">Press Start</div>
+            </div>
+        </div>
+
+        <!-- CYAN MODE (CHANCE) -->
+        <div id="tab-cyan" class="tab-pane">
+            <div class="card">
+                <h2>Cyan Mode: Random Chance</h2>
+                
+                <div class="control-row">
+                    <label>Win Chance</label>
+                    <input type="range" id="cyan-chance" min="0" max="100" value="50">
+                    <span class="val-display" id="val-cyan-chance">50%</span>
+                </div>
+                
+                <div class="status-indicator" id="cyan-indicator">PRESS BUTTON TO ROLL</div>
+            </div>
+        </div>
+        
+    </div>
+</div>
+
+<script>
+    /**
+     * DG-LAB PawPrint JavaScript Library
+     * Embedded for local file compatibility (CORS fix)
+     */
+    const COLORS = {
+        OFF: 0x00,
+        YELLOW: 0x01,
+        RED: 0x02,
+        VIOLET: 0x03,
+        BLUE: 0x04,
+        CYAN: 0x05,
+        GREEN: 0x06
+    };
+
+    const BUTTONS = {
+        B1: 1, // Top/Left
+        B2: 2, // Middle
+        B3: 3  // Bottom/Right
+    };
+
+    class PawPrint extends EventTarget {
+        constructor() {
+            super();
+            this.device = null;
+            this.server = null;
+            this.writeChar = null;
+            
+            // State
+            this.internalColor = COLORS.YELLOW;
+            this.externalColor = COLORS.OFF;
+            this.dataEnabled = false;
+            
+            // Sensor Data
+            this.accel = { x: 0, y: 0, z: 0 };
+            this.btnState = { b1: false, b2: false, b3: false }; // false=released, true=pressed
+            
+            // Derived Data
+            this.shake = 0; // Instantaneous shake intensity
+            
+            // Timers
+            this.blinkInterval = null;
+        }
+
+        /**
+         * Request a Bluetooth Device.
+         * Use this in response to a user gesture.
+         */
+        async scan() {
+            try {
+                this.device = await navigator.bluetooth.requestDevice({
+                    filters: [
+                        { namePrefix: '47L' }, 
+                        { namePrefix: 'Paw' },
+                        { services: ['0000180c-0000-1000-8000-00805f9b34fb'] }
+                    ],
+                    optionalServices: ['0000180c-0000-1000-8000-00805f9b34fb', 'battery_service']
+                });
+                return this.device;
+            } catch (e) {
+                console.error("Scan cancelled or failed:", e);
+                throw e;
+            }
+        }
+
+        async connect(device = this.device) {
+            if (!device) throw new Error("No device selected. Call scan() first.");
+            
+            if (device.name === '47L121000') {
+                console.warn("Warning: This might be a Coyote device, not PawPrint.");
+            }
+
+            this.device = device;
+            this.device.addEventListener('gattserverdisconnected', () => this.onDisconnect());
+
+            this.server = await this.device.gatt.connect();
+            const svc = await this.server.getPrimaryService('0000180c-0000-1000-8000-00805f9b34fb');
+
+            // Setup Write
+            const chars = await svc.getCharacteristics();
+            this.writeChar = chars.find(c => c.uuid.includes('150a'));
+            if (!this.writeChar) throw new Error("Write characteristic not found");
+
+            // Setup Notify
+            const notifyChar = chars.find(c => c.uuid.includes('150b'));
+            if (notifyChar) {
+                await notifyChar.startNotifications();
+                notifyChar.addEventListener('characteristicvaluechanged', (e) => this.handleData(e));
+            }
+
+            this.dispatchEvent(new Event('connected'));
+        }
+
+        async disconnect() {
+            if (this.device && this.device.gatt.connected) {
+                await this.stopData();
+                await this.setExternalColor(COLORS.OFF);
+                this.device.gatt.disconnect();
+            }
+        }
+
+        onDisconnect() {
+            this.stopBlink();
+            this.dispatchEvent(new Event('disconnected'));
+        }
+
+        async send(u8) {
+            if (!this.writeChar) return;
+            try {
+                await this.writeChar.writeValue(u8);
+            } catch (e) {
+                console.error("TX Error:", e);
+            }
+        }
+
+        // --- Commands ---
+
+        async setInternalColor(colorId) {
+            this.internalColor = colorId;
+            const dataByte = this.dataEnabled ? 0xFF : 0x00;
+            await this.send(new Uint8Array([0x53, this.internalColor, dataByte]));
+        }
+
+        async setExternalColor(colorId) {
+            this.stopBlink(); // Stop any active blinking
+            this.externalColor = colorId;
+            await this.send(new Uint8Array([0x70, this.externalColor]));
+        }
+
+        async startData() {
+            this.dataEnabled = true;
+            await this.setInternalColor(this.internalColor); // Re-send 53 with FF
+        }
+
+        async stopData() {
+            this.dataEnabled = false;
+            await this.setInternalColor(this.internalColor); // Re-send 53 with 00
+        }
+
+        /**
+         * Blinks the external LED between two colors at a given frequency.
+         * @param {number} color1 - First Color ID
+         * @param {number} color2 - Second Color ID
+         * @param {number} hz - Frequency in Hertz (e.g. 2 for 2 times per second)
+         */
+        blinkExternal(color1, color2, hz) {
+            this.stopBlink();
+            const intervalMs = 1000 / hz / 2; // Half cycle for each color
+            let state = false;
+            
+            // Immediate start
+            this.send(new Uint8Array([0x70, color1]));
+            
+            this.blinkInterval = setInterval(() => {
+                state = !state;
+                const c = state ? color2 : color1;
+                this.send(new Uint8Array([0x70, c]));
+            }, intervalMs);
+        }
+
+        stopBlink() {
+            if (this.blinkInterval) {
+                clearInterval(this.blinkInterval);
+                this.blinkInterval = null;
+            }
+        }
+
+        // --- Data Parsing ---
+
+        handleData(event) {
+            const u8 = new Uint8Array(event.target.value.buffer);
+            if (u8.length < 3) return;
+            if (u8[0] === 0x51) return; // ACK packet
+
+            // Buttons
+            // Packet: [B3] [B2] [B1] ...
+            const newB3 = u8[0] === 0x00;
+            const newB2 = u8[1] === 0x00;
+            const newB1 = u8[2] === 0x00;
+
+            this.checkBtnChange('b1', newB1, BUTTONS.B1);
+            this.checkBtnChange('b2', newB2, BUTTONS.B2);
+            this.checkBtnChange('b3', newB3, BUTTONS.B3);
+
+            // Accelerometer
+            if (u8.length >= 13) {
+                const x = this.getInt16(u8, 7);
+                const y = this.getInt16(u8, 9);
+                const z = this.getInt16(u8, 11);
+                
+                // Shake Calculation (Delta Magnitude)
+                const dx = x - this.accel.x;
+                const dy = y - this.accel.y;
+                const dz = z - this.accel.z;
+                this.shake = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                
+                this.accel = { x, y, z };
+                
+                // Emit Data Event
+                this.dispatchEvent(new CustomEvent('data', { 
+                    detail: { 
+                        accel: this.accel, 
+                        buttons: this.btnState,
+                        shake: this.shake
+                    } 
+                }));
+            }
+        }
+
+        checkBtnChange(key, pressed, id) {
+            if (this.btnState[key] !== pressed) {
+                this.btnState[key] = pressed;
+                const type = pressed ? 'buttondown' : 'buttonup';
+                this.dispatchEvent(new CustomEvent(type, { detail: { button: id } }));
+            }
+        }
+
+        getInt16(u8, idx) {
+            let val = (u8[idx] << 8) | u8[idx + 1];
+            if (val > 32767) val -= 65536;
+            return val;
+        }
+
+        // --- Helpers ---
+
+        /**
+         * Returns tilt angles in degrees
+         */
+        getTilt() {
+            const { x, y, z } = this.accel;
+            const RAD_TO_DEG = 180 / Math.PI;
+            // Basic roll/pitch
+            const roll = Math.atan2(x, z) * RAD_TO_DEG;
+            const pitch = Math.atan2(y, Math.sqrt(x*x + z*z)) * RAD_TO_DEG;
+            // Full 360 Pitch alternative
+            const pitch360 = Math.atan2(y, z) * RAD_TO_DEG;
+            
+            return { roll, pitch, pitch360 };
+        }
+    }
+
+    class App {
+        constructor() {
+            this.paw = new PawPrint();
+            this.activeTab = 'manual';
+            this.setupUI();
+            this.setupEvents();
+            
+            // Loop for UI updates (Visualizers)
+            requestAnimationFrame(() => this.loop());
+        }
+
+        setupUI() {
+            // Color Buttons
+            const createColors = (target, fn) => {
+                Object.entries(COLORS).forEach(([name, val]) => {
+                    const btn = document.createElement('div');
+                    btn.className = 'c-btn';
+                    btn.style.backgroundColor = name === 'OFF' ? '#000' : name.toLowerCase();
+                    if(name==='OFF') btn.style.border = '2px dashed #555';
+                    btn.onclick = () => fn(val);
+                    document.getElementById(target).appendChild(btn);
+                });
+            };
+            
+            createColors('manual-int-colors', (v) => this.paw.setInternalColor(v));
+            createColors('manual-ext-colors', (v) => this.paw.setExternalColor(v));
+            
+            // Tabs
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.onclick = () => {
+                    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+                    btn.classList.add('active');
+                    document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+                    this.activeTab = btn.dataset.tab;
+                    this.onTabChange(this.activeTab);
+                };
+            });
+            
+            // Sliders
+            const linkSlider = (id, displayId) => {
+                const el = document.getElementById(id);
+                el.oninput = () => document.getElementById(displayId).textContent = el.value + (displayId.includes('chance')?'%':'');
+            };
+            linkSlider('blue-min', 'val-blue-min');
+            linkSlider('blue-max', 'val-blue-max');
+            linkSlider('red-thresh', 'val-red-thresh');
+            linkSlider('cyan-chance', 'val-cyan-chance');
+        }
+
+        setupEvents() {
+            document.getElementById('btn-connect').onclick = async () => {
+                try {
+                    await this.paw.scan();
+                    await this.paw.connect();
+                } catch(e) { alert(e.message); }
+            };
+            
+            document.getElementById('btn-stream').onclick = () => {
+                if(this.paw.dataEnabled) {
+                    this.paw.stopData();
+                    document.getElementById('btn-stream').textContent = "Start Stream";
+                } else {
+                    this.paw.startData();
+                    document.getElementById('btn-stream').textContent = "Stop Stream";
+                }
+            };
+            
+            // Library Events
+            this.paw.addEventListener('connected', () => {
+                document.getElementById('connection-status').textContent = "Connected: " + this.paw.device.name;
+                document.getElementById('connection-status').style.color = "#00e676";
+                document.getElementById('btn-connect').style.display = 'none';
+            });
+            
+            this.paw.addEventListener('disconnected', () => {
+                document.getElementById('connection-status').textContent = "Disconnected";
+                document.getElementById('connection-status').style.color = "#cf6679";
+                document.getElementById('btn-connect').style.display = 'inline-block';
+            });
+            
+            this.paw.addEventListener('data', (e) => this.handleData(e.detail));
+            
+            this.paw.addEventListener('buttondown', (e) => this.handleButton(e.detail.button, true));
+            this.paw.addEventListener('buttonup', (e) => this.handleButton(e.detail.button, false));
+        }
+        
+        onTabChange(tab) {
+            // Stop any blinking/color when switching tabs
+            this.paw.setExternalColor(COLORS.OFF);
+            this.paw.setInternalColor(COLORS.OFF);
+            
+            // Auto-start stream for modes that need it
+            if (['blue', 'red'].includes(tab) && !this.paw.dataEnabled) {
+                this.paw.startData();
+            }
+        }
+        
+        handleData(data) {
+            // Update UI for Manual
+            if(this.activeTab === 'manual') {
+                const { x, y, z } = data.accel;
+                document.getElementById('disp-accel').textContent = `X:${x} Y:${y} Z:${z}`;
+            }
+            
+            // Logic for Red Mode (Shake)
+            if(this.activeTab === 'red') {
+                this.logicRed(data.shake);
+            }
+            
+            // Logic for Blue Mode (Tilt)
+            if(this.activeTab === 'blue') {
+                this.logicBlue();
+            }
+        }
+        
+        handleButton(btnId, pressed) {
+            // Update UI
+            const btnStr = (this.paw.btnState.b1?'B1 ':'') + (this.paw.btnState.b2?'B2 ':'') + (this.paw.btnState.b3?'B3 ':'');
+            document.getElementById('disp-btns').textContent = btnStr || '---';
+            
+            if(this.activeTab === 'yellow') this.logicYellow(pressed);
+            if(this.activeTab === 'violet') this.logicViolet(pressed);
+            if(this.activeTab === 'cyan') this.logicCyan(pressed);
+        }
+
+        // --- Logic implementations ---
+
+        blinkTest() {
+            this.paw.blinkExternal(COLORS.RED, COLORS.BLUE, 5);
+        }
+
+        // YELLOW: Trigger on Press/Release
+        logicYellow(pressed) {
+            const el = document.getElementById('yellow-indicator');
+            if(pressed) {
+                el.textContent = "PRESSED - TRIGGER!";
+                el.classList.add('active');
+                // Blink White (using Cyan+Red or just toggling colors rapidly)
+                // Since we don't have White, let's use Cyan/Violet fast blink
+                this.paw.blinkExternal(COLORS.CYAN, COLORS.VIOLET, 10);
+            } else {
+                el.textContent = "RELEASED - TRIGGER!";
+                el.classList.remove('active');
+                this.paw.blinkExternal(COLORS.GREEN, COLORS.YELLOW, 10);
+                setTimeout(() => this.paw.setExternalColor(COLORS.OFF), 500);
+            }
+        }
+        
+        // BLUE: Tilt
+        logicBlue() {
+            const tilt = this.paw.getTilt();
+            const axis = document.getElementById('blue-axis').value;
+            const val = axis === 'pitch' ? tilt.pitch360 : tilt.roll;
+            
+            // Display
+            document.getElementById('blue-current').textContent = Math.round(val) + "°";
+            const percent = (val + 180) / 360 * 100;
+            document.getElementById('blue-bar-marker').style.left = percent + "%";
+            
+            // Check Range
+            const min = parseInt(document.getElementById('blue-min').value);
+            const max = parseInt(document.getElementById('blue-max').value);
+            
+            const inRange = val >= min && val <= max;
+            const el = document.getElementById('blue-indicator');
+            
+            if(inRange) {
+                el.textContent = "IN RANGE";
+                el.classList.add('active');
+                // Feedback: Solid Green
+                if(this.paw.externalColor !== COLORS.GREEN) this.paw.setExternalColor(COLORS.GREEN);
+            } else {
+                el.textContent = "OUT OF RANGE";
+                el.classList.remove('active');
+                if(this.paw.externalColor !== COLORS.OFF) this.paw.setExternalColor(COLORS.OFF);
+            }
+            
+            // Update Range Visualizer
+            const w = ((max - min) / 360) * 100;
+            const l = ((min + 180) / 360) * 100;
+            const fill = document.getElementById('blue-bar-fill');
+            fill.style.left = l + "%";
+            fill.style.width = w + "%";
+        }
+        
+        // RED: Shake
+        logicRed(shake) {
+            const el = document.getElementById('red-val');
+            el.textContent = Math.round(shake);
+            
+            // Visu
+            const max = 5000;
+            const pct = Math.min((shake / max) * 100, 100);
+            document.getElementById('red-bar').style.width = pct + "%";
+            
+            const thresh = parseInt(document.getElementById('red-thresh').value);
+            document.getElementById('red-marker').style.left = (thresh/max*100) + "%";
+            
+            const ind = document.getElementById('red-indicator');
+            if(shake > thresh) {
+                ind.textContent = "ENOUGH SHAKE!";
+                ind.classList.add('active');
+                // Feedback: Blink Red
+                if(!this.paw.blinkInterval) this.paw.blinkExternal(COLORS.RED, COLORS.OFF, 10);
+            } else {
+                ind.textContent = "NOT ENOUGH";
+                ind.classList.remove('active');
+                if(shake < 100) this.paw.setExternalColor(COLORS.OFF);
+            }
+        }
+        
+        // VIOLET: Reflex Game
+        violetState = 'idle'; // idle, waiting, active, result
+        violetTimer = null;
+        
+        startVioletGame() {
+            if(this.violetState !== 'idle' && this.violetState !== 'result') return;
+            
+            const stat = document.getElementById('violet-status');
+            stat.textContent = "Get Ready...";
+            stat.style.color = "#fff";
+            this.paw.setExternalColor(COLORS.OFF);
+            this.violetState = 'waiting';
+            
+            const delay = 2000 + Math.random() * 3000;
+            
+            this.violetTimer = setTimeout(() => {
+                this.violetState = 'active';
+                stat.textContent = "PRESS NOW!";
+                stat.style.color = "#00e676";
+                this.paw.setExternalColor(COLORS.GREEN);
+                
+                // Timeout for failure
+                this.violetTimer = setTimeout(() => {
+                    if(this.violetState === 'active') {
+                        this.violetState = 'result';
+                        stat.textContent = "TOO SLOW!";
+                        stat.style.color = "#ff1744";
+                        this.paw.blinkExternal(COLORS.RED, COLORS.OFF, 5);
+                    }
+                }, 1000); // 1s window
+            }, delay);
+        }
+        
+        logicViolet(pressed) {
+            if(!pressed) return;
+            if(this.violetState === 'waiting') {
+                // False start
+                clearTimeout(this.violetTimer);
+                this.violetState = 'result';
+                document.getElementById('violet-status').textContent = "TOO EARLY!";
+                document.getElementById('violet-status').style.color = "#ff1744";
+                this.paw.blinkExternal(COLORS.RED, COLORS.OFF, 5);
+            } else if (this.violetState === 'active') {
+                // Success
+                clearTimeout(this.violetTimer);
+                this.violetState = 'result';
+                document.getElementById('violet-status').textContent = "NICE REFLEX!";
+                document.getElementById('violet-status').style.color = "#00e676";
+                this.paw.blinkExternal(COLORS.GREEN, COLORS.CYAN, 10);
+            }
+        }
+        
+        // CYAN: Random Chance
+        logicCyan(pressed) {
+            if(!pressed) return;
+            const chance = parseInt(document.getElementById('cyan-chance').value);
+            const roll = Math.random() * 100;
+            const win = roll < chance;
+            
+            const ind = document.getElementById('cyan-indicator');
+            if(win) {
+                ind.textContent = `WIN (${Math.round(roll)} < ${chance})`;
+                ind.style.background = "var(--secondary)";
+                this.paw.blinkExternal(COLORS.GREEN, COLORS.OFF, 5);
+            } else {
+                ind.textContent = `LOSE (${Math.round(roll)} > ${chance})`;
+                ind.style.background = "var(--error)";
+                this.paw.blinkExternal(COLORS.YELLOW, COLORS.OFF, 5);
+            }
+            
+            setTimeout(() => {
+                ind.textContent = "PRESS BUTTON TO ROLL";
+                ind.style.background = "#333";
+                this.paw.setExternalColor(COLORS.OFF);
+            }, 1000);
+        }
+
+        loop() {
+            // General Update Loop if needed
+            requestAnimationFrame(() => this.loop());
+        }
+    }
+
+    window.app = new App();
+</script>
+
+</body>
+</html>
