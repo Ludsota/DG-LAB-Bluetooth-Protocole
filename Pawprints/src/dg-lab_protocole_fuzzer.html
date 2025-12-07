@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>DG-LAB Fuzzer / Scanner</title>
+    <style>
+        body { background: #111; color: #0f0; font-family: monospace; padding: 20px; }
+        .log { background: #000; border: 1px solid #333; height: 300px; overflow-y: scroll; padding: 10px; margin-bottom: 10px; }
+        input, button { padding: 8px; background: #222; color: #fff; border: 1px solid #444; margin-right: 5px; }
+        button:hover { background: #333; cursor: pointer; }
+        .row { margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }
+        .highlight { color: #ff0; font-weight: bold; }
+        .found { color: #0ff; }
+        .sent { color: #aaa; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <h1>DG-LAB Protocol Fuzzer</h1>
+    
+    <div class="row">
+        <button id="btnConnect">1. Connecter PawPrint (47L...)</button>
+        <span id="status">Déconnecté</span>
+    </div>
+
+    <div class="row">
+        <label>Char WRITE:</label>
+        <select id="charWrite" style="width: 300px;"><option>-- Connecter d'abord --</option></select>
+    </div>
+
+    <div class="row">
+        <button id="btnFuzz1">2. Fuzzing Simple (00-FF)</button>
+        <button id="btnFuzz2">3. Fuzzing 2 Bytes (00 00 - 05 FF)</button>
+        <button id="btnFuzzMagic">4. Magic Sequences (Known Headers)</button>
+        <button id="btnStop" style="background: #d00;">STOP</button>
+    </div>
+
+    <!-- Manual Lab -->
+    <div style="border: 1px solid #444; padding: 10px; margin-bottom: 10px; background: #222;">
+        <h3>5. Laboratoire Manuel</h3>
+        
+        <div style="display:flex; gap:20px;">
+            <div style="flex:1;">
+                <h4 style="margin-top:0">1. Couleur Interne (53 XX)</h4>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px;">
+                    <button onclick="setInternal('01')" style="color:yellow; border-color:yellow">Jaune (01)</button>
+                    <button onclick="setInternal('02')" style="color:red; border-color:red">Rouge (02)</button>
+                    <button onclick="setInternal('03')" style="color:violet; border-color:violet">Violet (03)</button>
+                    <button onclick="setInternal('04')" style="color:cyan; border-color:cyan">Bleu (04)</button>
+                    <button onclick="setInternal('05')" style="color:cyan; border-color:cyan">Cyan (05)</button>
+                    <button onclick="setInternal('06')" style="color:lime; border-color:lime">Vert (06)</button>
+                </div>
+            </div>
+            
+            <div style="flex:1;">
+                <h4 style="margin-top:0">2. LED Externe (70 XX)</h4>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px;">
+                    <button onclick="setExternal('00')">OFF (00)</button>
+                    <button onclick="setExternal('01')">ON 1 (01)</button>
+                    <button onclick="setExternal('02')">ON 2 (02)</button>
+                    <button onclick="setExternal('03')">ON 3 (03)</button>
+                    <button onclick="setExternal('04')">ON 4 (04)</button>
+                    <button onclick="setExternal('05')">ON 5 (05)</button>
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-top:10px; border-top:1px solid #444; padding-top:10px;">
+            <h4 style="margin-top:0">3. Flux de Données</h4>
+            <div class="row">
+                <button onclick="toggleData(true)" style="background:#0a0">ACTIVER DATA (53 XX FF)</button>
+                <button onclick="toggleData(false)" style="background:#a00">STOP DATA (53 XX 00)</button>
+            </div>
+            <div id="dataAnalysis" style="font-family: monospace; color: #fff; background:#111; padding:10px; border:1px dashed #555;">
+                En attente...
+            </div>
+        </div>
+    </div>
+
+    <!-- LED Externe COMBO -->
+    <div style="border: 1px solid #444; padding: 10px; margin-bottom: 10px; background: #222;">
+        <h3>6. Test de Liaison (Couleur Interne -> Externe)</h3>
+        <div style="color:#aaa; font-size:11px; margin-bottom:10px;">
+            Vérifie si la commande 70 XX utilise la couleur définie par 53 XX.
+        </div>
+        
+        <div class="row">
+            <button onclick="fuzzCombo()" style="border-color: #0ff; color: #0ff; font-weight:bold;">LANCER COMBO TEST</button>
+            <button id="stopLedFuzz" style="background: #d00;">STOP</button>
+        </div>
+    </div>
+
+    <div class="log" id="console"></div>
+
+    <script>
+        let device, server;
+        let writeChar = null;
+        let isFuzzing = false;
+        let isLedFuzzing = false;
+
+        function log(msg, type='') {
+            const div = document.createElement('div');
+            div.innerHTML = `<span style="color:#666">[${new Date().toLocaleTimeString()}]</span> <span class="${type}">${msg}</span>`;
+            const c = document.getElementById('console');
+            c.appendChild(div);
+            c.scrollTop = c.scrollHeight;
+        }
+
+        async function connect() {
+            try {
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: '47L' }, { namePrefix: 'Paw' }],
+                    optionalServices: ['battery_service', 0x180F, 0x180C, '0000180c-0000-1000-8000-00805f9b34fb']
+                });
+                
+                server = await device.gatt.connect();
+                document.getElementById('status').textContent = "Connecté: " + device.name;
+                document.getElementById('status').style.color = "#0f0";
+                
+                log("Scanning services...", 'highlight');
+                const services = await server.getPrimaryServices();
+                const select = document.getElementById('charWrite');
+                select.innerHTML = '';
+
+                for (const s of services) {
+                    log(`Service found: ${s.uuid}`, 'highlight');
+                    let chars = [];
+                    try {
+                        chars = await s.getCharacteristics();
+                    } catch(e) { log(`  Error getting chars for ${s.uuid}: ${e}`, 'error'); }
+
+                    for (const c of chars) {
+                        const props = [];
+                        if (c.properties.read) props.push('R');
+                        if (c.properties.write) props.push('W');
+                        if (c.properties.writeWithoutResponse) props.push('WNoResp');
+                        if (c.properties.notify) props.push('N');
+                        if (c.properties.indicate) props.push('I');
+                        
+                        log(`  Char: ${c.uuid} [${props.join(',')}]`);
+
+                        // FORCE SUBSCRIBE TO EVERYTHING
+                        // Even if it doesn't say Notify, we try. Some devices lie.
+                        try {
+                            await c.startNotifications();
+                            c.addEventListener('characteristicvaluechanged', (e) => {
+                                const u8 = new Uint8Array(e.target.value.buffer);
+                                const hex = Array.from(u8).map(b => b.toString(16).padStart(2,'0')).join(' ');
+                                log(`<<< REÇU [${c.uuid.substring(0,8)}]: ${hex}`, 'found');
+                                updateAnalysis(u8);
+                            });
+                            log(`    -> Subscribed (Force) to ${c.uuid}`, 'found');
+                        } catch(e) {
+                            // Expected error for non-notifiable chars, silent ignore or log
+                            // log(`    -> Subscribe failed: ${e.message}`, 'sent');
+                        }
+
+                        // READ EVERYTHING ONCE
+                        if (c.properties.read) {
+                            try {
+                                const val = await c.readValue();
+                                const hex = Array.from(new Uint8Array(val.buffer)).map(b => b.toString(16).padStart(2,'0')).join(' ');
+                                log(`    -> Initial Read: ${hex}`, 'sent');
+                            } catch(e) {}
+                        }
+
+                        // Populate Writer List
+                        if (c.properties.write || c.properties.writeWithoutResponse) {
+                            const opt = document.createElement('option');
+                            opt.value = c.uuid;
+                            opt.textContent = `${c.uuid.substring(0,8)}... (${props.join(',')})`;
+                            opt.charRef = c;
+                            select.appendChild(opt);
+                            if (!writeChar) writeChar = c;
+                        }
+                    }
+                }
+                
+                if (writeChar) log("Prêt à fuzzer sur " + writeChar.uuid, 'highlight');
+
+            } catch (e) {
+                log("Erreur: " + e.message, 'error');
+            }
+        }
+
+        // Helper to retrieve char object from select
+        function getSelectedChar() {
+            const select = document.getElementById('charWrite');
+            if (select.selectedIndex < 0) return null;
+            return select.options[select.selectedIndex].charRef;
+        }
+
+        async function send(u8) {
+            const char = getSelectedChar();
+            if (!char) return;
+            try {
+                const hex = Array.from(u8).map(b=>b.toString(16).padStart(2,'0')).join(' ');
+                log(`>>> Sent: ${hex}`, 'sent'); // Log SENT data to correlate with response
+                await char.writeValue(u8);
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+        // Fuzzer 1: Single Byte 00-FF
+        async function fuzz1() {
+            if (isFuzzing) return;
+            isFuzzing = true;
+            log("--- START FUZZ 1 BYTE (00-FF) ---", 'highlight');
+            
+            for (let i = 0; i <= 255; i++) {
+                if (!isFuzzing) break;
+                const arr = new Uint8Array([i]);
+                await send(arr);
+                document.getElementById('status').textContent = `Fuzzing: ${i.toString(16).toUpperCase()}`;
+                await wait(250); // Slower scan to see LED/Response
+            }
+            isFuzzing = false;
+            log("--- END FUZZ 1 ---");
+        }
+
+        // Fuzzer 2: Header + Byte (Common in simple protocols)
+        async function fuzz2() {
+            if (isFuzzing) return;
+            isFuzzing = true;
+            log("--- START FUZZ 2 BYTES (00 00 - 05 FF) ---", 'highlight');
+            
+            // Focus on 53 since we saw reactions, and others
+            const headers = [0x53, 0x51, 0x01, 0x02];
+            
+            for (const h of headers) {
+                for (let i = 0; i <= 10; i++) { // Limit range 0-10 for speed first
+                    if (!isFuzzing) break;
+                    const arr = new Uint8Array([h, i]);
+                    await send(arr);
+                    document.getElementById('status').textContent = `Fuzzing: ${h.toString(16)} ${i.toString(16)}`;
+                    await wait(300);
+                }
+            }
+            isFuzzing = false;
+            log("--- END FUZZ 2 ---");
+        }
+
+        // Fuzzer 3: Known Magic & Structures & Activators
+        async function fuzzMagic() {
+            if (isFuzzing) return;
+            isFuzzing = true;
+            log("--- START MAGIC SEQUENCES ---", 'highlight');
+
+            // Strategy: Try to activate DATA reporting
+            // Maybe 53 XX 01? Or 53 XX FF?
+            const patterns = [
+                [0x53, 0x01, 0x01], // Mode 1 + Param 1
+                [0x53, 0x01, 0xFF],
+                [0x53, 0x01, 0x00, 0x01],
+                [0x53, 0x04, 0x01], // Mode Tilt + Param 1
+                [0x53, 0x06, 0x01], // Mode Ext + Param 1
+                [0x53, 0x00],       // Reset?
+                // Request Status?
+                [0x51, 0x00],
+                [0x52, 0x00],
+                [0xAA],
+                // Coyote Short
+                [0xB0, 0x00] 
+            ];
+
+            for (const p of patterns) {
+                if (!isFuzzing) break;
+                const arr = new Uint8Array(p);
+                log(`>>> Trying Magic: ${Array.from(arr).map(b=>b.toString(16)).join(' ')}`);
+                await send(arr);
+                await wait(400); // Wait for reaction
+            }
+            isFuzzing = false;
+            log("--- END MAGIC ---");
+        }
+
+        let currentInternal = '01'; // Default Jaune
+
+        async function setInternal(byte) {
+            currentInternal = byte;
+            const u8 = new Uint8Array([0x53, parseInt(byte, 16)]);
+            log(`>>> INT: Set Color ${byte} (53 ${byte})`, 'highlight');
+            await send(u8);
+        }
+
+        async function setExternal(byte) {
+            const u8 = new Uint8Array([0x70, parseInt(byte, 16)]);
+            log(`>>> EXT: Command ${byte} (70 ${byte})`, 'highlight');
+            await send(u8);
+        }
+
+        async function toggleData(enable) {
+            const byte = enable ? 0xFF : 0x00;
+            const u8 = new Uint8Array([0x53, parseInt(currentInternal, 16), byte]);
+            log(`>>> DATA: ${enable?'START':'STOP'} (53 ${currentInternal} ${byte.toString(16)})`, enable?'found':'highlight');
+            await send(u8);
+        }
+        
+        // COMBO TESTER (Link Internal Color -> External LED)
+        async function fuzzCombo() {
+            if (isLedFuzzing) return;
+            isLedFuzzing = true;
+            log("--- START COMBO TEST (Color Link) ---", 'highlight');
+            
+            const colors = [
+                {id: 0x01, name: "Jaune"},
+                {id: 0x02, name: "Rouge"},
+                {id: 0x03, name: "Violet"},
+                {id: 0x04, name: "Bleu"},
+                {id: 0x06, name: "Vert"}
+            ];
+
+            // Try 70 XX with each internal color set
+            for (const c of colors) {
+                if (!isLedFuzzing) break;
+                
+                // 1. Set Internal Color
+                log(`>>> Set Internal: ${c.name} (53 ${c.id.toString(16)})`, 'found');
+                await send(new Uint8Array([0x53, c.id]));
+                await wait(200);
+
+                // 2. Try to activate External with 70 XX
+                // We test 70 00, 70 01, 70 02...
+                for (let p = 0; p <= 5; p++) {
+                    if (!isLedFuzzing) break;
+                    const u8 = new Uint8Array([0x70, p]);
+                    await send(u8);
+                    document.getElementById('status').textContent = `${c.name} + 70 ${p.toString(16)}`;
+                    await wait(800); // Very slow to observe
+                }
+            }
+            
+            isLedFuzzing = false;
+            log("--- END COMBO TEST ---");
+        }
+
+        async function readBattery() {
+            // Try standard service 180F -> Char 2A19
+            if (!server) return;
+            try {
+                const svc = await server.getPrimaryService('battery_service');
+                const char = await svc.getCharacteristic('battery_level'); // 0x2A19
+                const val = await char.readValue();
+                const level = val.getUint8(0);
+                log(`[BATTERY] Level: ${level}%`, 'success');
+                alert(`Batterie: ${level}%`);
+            } catch(e) {
+                log(`[BATTERY] Standard read failed: ${e.message}`, 'error');
+                // Try guessing custom command?
+                log(`[BATTERY] Trying custom command 20...`);
+                await send(new Uint8Array([0x20]));
+            }
+        }
+        
+        document.getElementById('stopLedFuzz').onclick = () => { isLedFuzzing = false; log("STOPPED", 'highlight'); };
+
+        // V6 Parser: Corrected Indices
+        function updateAnalysis(u8) {
+            const div = document.getElementById('dataAnalysis');
+            
+            const b3 = u8[0];
+            const b2 = u8[1];
+            const b1 = u8[2];
+            const batt_maybe = u8[6]; // Byte 6 often static 00/01
+            const byte13 = u8[13] || 0;
+            
+            const btnStatus = (val) => val === 0 ? '<b style="color:#f00">ON</b>' : '<span style="color:#444">off</span>';
+
+            // Helper to parse Int16 (Big Endian Only)
+            const getInt16BE = (i) => { if(i+1 >= u8.length) return 0; let v = (u8[i]<<8)|u8[i+1]; return v>32767 ? v-65536 : v; };
+            
+            // Corrected indices 7-12
+            const x_be = getInt16BE(7);
+            const y_be = getInt16BE(9);
+            const z_be = getInt16BE(11);
+
+            // Construct visual byte map
+            let byteMap = "";
+            for(let i=0; i<u8.length; i++) {
+                 byteMap += `<div style="display:inline-block; width:20px; text-align:center; font-size:9px; color:#555;">${i}</div>`;
+            }
+            byteMap += "<br>";
+            for(let i=0; i<u8.length; i++) {
+                 let color = "#fff";
+                 if(i<3) color="#ffeb3b"; // Btns
+                 else if(i>=7 && i<=12) color="#4fc3f7"; // Accel (Corrected 7-12)
+                 byteMap += `<div style="display:inline-block; width:20px; text-align:center; color:${color}">${u8[i].toString(16).padStart(2,'0')}</div>`;
+            }
+
+            const interp = `
+            <div style="margin-top:5px; border:1px solid #444; padding:5px; background:#000;">
+                <div style="display:flex; justify-content:space-around; margin-bottom:5px;">
+                    <div>B1: ${btnStatus(b1)}</div>
+                    <div>B2: ${btnStatus(b2)}</div>
+                    <div>B3: ${btnStatus(b3)}</div>
+                </div>
+                
+                <div style="display:grid; grid-template-columns: 1fr; gap:5px; font-size:11px; border-top:1px solid #333; padding-top:5px;">
+                    <div>
+                        <div style="color:#aaa">Big Endian (Indices 7-12)</div>
+                        <div>X: <span style="color:#4fc3f7">${x_be}</span></div>
+                        <div>Y: <span style="color:#4fc3f7">${y_be}</span></div>
+                        <div>Z: <span style="color:#4fc3f7">${z_be}</span></div>
+                    </div>
+                </div>
+                <div style="font-size:10px; color:#888; margin-top:5px;">
+                     Byte 6: ${batt_maybe} | Byte 13: ${byte13} (Batterie ?)
+                </div>
+                
+                <div style="margin-top:5px; font-family:monospace;">${byteMap}</div>
+            </div>`;
+            
+            div.innerHTML = interp;
+        }
+
+        document.getElementById('btnConnect').onclick = connect;
+        document.getElementById('btnFuzz1').onclick = fuzz1;
+        document.getElementById('btnFuzz2').onclick = fuzz2;
+        document.getElementById('btnFuzzMagic').onclick = fuzzMagic;
+        document.getElementById('btnStop').onclick = () => { isFuzzing = false; log("STOPPED", 'highlight'); };
+
+    </script>
+</body>
+</html>
+
+</final_file_content>
+
+IMPORTANT: For any future changes to this file, use the final_file_content shown above as your reference. This content reflects the current state of the file, including any auto-formatting (e.g., if you used single quotes but the formatter converted them to double quotes). Always base your SEARCH/REPLACE operations on this final version to ensure accuracy.
